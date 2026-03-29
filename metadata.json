@@ -1,0 +1,5 @@
+{
+  "name": "Offline POS System",
+  "description": "A standalone, offline-first mobile Point-of-Sale application for restaurants and shopkeepers.",
+  "requestFramePermissions": []
+}

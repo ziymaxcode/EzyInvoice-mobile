@@ -1,0 +1,6 @@
+{
+	"appId": "com.posapp.app",
+	"appName": "POS App",
+	"webDir": "dist",
+	"bundledWebRuntime": false
+}
