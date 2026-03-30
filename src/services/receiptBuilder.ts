@@ -4,11 +4,12 @@ import { Bill, BillItem, Shop } from '../data/database';
 export function buildReceipt(
   bill: Bill, 
   items: BillItem[], 
-  shopName: string = "MY SHOP",
+  shop: Shop | null = null,
   paperSize: '58mm' | '80mm' = '58mm'
 ): Uint8Array {
   const encoder = new EscPosEncoder();
   const lineLength = paperSize === '58mm' ? 32 : 48;
+  const shopName = shop?.name || "Ezy POS";
   
   encoder.initialize()
     .alignCenter()
@@ -76,8 +77,17 @@ export function buildReceipt(
     .size(1, 1)
     .bold(false)
     .line(`Paid via: ${bill.paymentMode}`)
-    .newline()
-    .alignCenter()
+    .newline();
+
+  if (shop?.upiId) {
+    const upiLink = `upi://pay?pa=${shop.upiId}&pn=${encodeURIComponent(shopName)}&am=${bill.total.toFixed(2)}&cu=INR`;
+    encoder.alignCenter()
+      .line("Scan to Pay")
+      .qrcode(upiLink, 6)
+      .newline();
+  }
+
+  encoder.alignCenter()
     .line("Thank you! Visit again.")
     .newline()
     .newline()

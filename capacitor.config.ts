@@ -2,7 +2,7 @@ import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.posapp.app',
-  appName: 'POS App',
+  appName: 'EzyPOS',
   webDir: 'dist',
   bundledWebRuntime: false
 };

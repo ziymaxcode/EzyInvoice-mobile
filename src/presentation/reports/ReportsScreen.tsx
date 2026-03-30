@@ -1,14 +1,24 @@
 import { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useNavigate } from 'react-router-dom';
+import { useCartStore } from '../billing/store/useCartStore';
 import { db, Bill } from '../../data/database';
-import { Search, Calendar, Filter, TrendingUp, Receipt, IndianRupee, Printer } from 'lucide-react';
+import { Search, Calendar, Filter, TrendingUp, Receipt, IndianRupee, Printer, X, Download, MessageCircle, Edit } from 'lucide-react';
 import { cn } from '../../core/utils/cn';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { format, subDays, isAfter, startOfDay, endOfDay } from 'date-fns';
 import { printerService } from '../../services/printerService';
 import { buildReceipt } from '../../services/receiptBuilder';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
+import QRCode from 'qrcode';
 
 export function ReportsScreen() {
+  const navigate = useNavigate();
+  const { loadBill } = useCartStore();
   const [activeTab, setActiveTab] = useState<'history' | 'analytics'>('history');
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState<'today' | 'week' | 'month' | 'all'>('today');
@@ -75,16 +85,204 @@ export function ReportsScreen() {
     return { totalRevenue: revenue, totalBills: count, avgBillValue: avg, chartData: chart };
   }, [filteredBills]);
 
+  const selectedBillItems = useLiveQuery(
+    () => selectedBill ? db.billItems.where('billId').equals(selectedBill.id!).toArray() : [],
+    [selectedBill]
+  );
+
   const handleReprint = async (bill: Bill) => {
     try {
       const items = await db.billItems.where('billId').equals(bill.id!).toArray();
       if (!printerService.isConnected()) {
         await printerService.connect();
       }
-      const receiptData = buildReceipt(bill, items, shopName, paperSize);
+      const receiptData = buildReceipt(bill, items, shopProfile || null, paperSize);
       await printerService.print(receiptData);
     } catch (error: any) {
       alert("Print failed: " + error.message);
+    }
+  };
+
+  const handleDownloadPDF = async (bill: Bill) => {
+    try {
+      const items = await db.billItems.where('billId').equals(bill.id!).toArray();
+      const doc = new jsPDF();
+      
+      // Header
+      doc.setFontSize(20);
+      doc.text(shopName, 105, 20, { align: 'center' });
+      
+      doc.setFontSize(12);
+      doc.text(`Bill No: ${bill.billNo}`, 14, 35);
+      doc.text(`Date: ${format(bill.createdAt, 'dd MMM yyyy, hh:mm a')}`, 14, 42);
+      
+      let startY = 49;
+      if (bill.customerName) {
+        doc.text(`Customer: ${bill.customerName}`, 14, startY);
+        startY += 7;
+      }
+      if (bill.tableNo) {
+        doc.text(`Table: ${bill.tableNo}`, 14, startY);
+        startY += 7;
+      }
+
+      // Items Table
+      const tableColumn = ["Item", "Qty", "Price", "Total"];
+      const tableRows = items.map(item => [
+        item.productName,
+        item.qty.toString(),
+        `Rs. ${item.unitPrice.toFixed(2)}`,
+        `Rs. ${(item.qty * item.unitPrice).toFixed(2)}`
+      ]);
+
+      autoTable(doc, {
+        startY: startY + 5,
+        head: [tableColumn],
+        body: tableRows,
+        theme: 'striped',
+        headStyles: { fillColor: [0, 122, 255] },
+      });
+
+      const finalY = (doc as any).lastAutoTable.finalY || startY + 5;
+
+      // Totals
+      doc.text(`Subtotal: Rs. ${bill.subtotal.toFixed(2)}`, 140, finalY + 10);
+      let currentY = finalY + 17;
+      if (bill.discount > 0) {
+        doc.text(`Discount: Rs. ${bill.discount.toFixed(2)}`, 140, currentY);
+        currentY += 7;
+      }
+      if (bill.taxAmount > 0) {
+        doc.text(`Tax: Rs. ${bill.taxAmount.toFixed(2)}`, 140, currentY);
+        currentY += 7;
+      }
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.text(`Total: Rs. ${bill.total.toFixed(2)}`, 140, currentY + 5);
+      
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Payment Mode: ${bill.paymentMode}`, 14, currentY + 5);
+
+      if (shopProfile?.upiId) {
+        const upiLink = `upi://pay?pa=${shopProfile.upiId}&pn=${encodeURIComponent(shopName)}&am=${bill.total.toFixed(2)}&cu=INR`;
+        try {
+          const qrDataUrl = await QRCode.toDataURL(upiLink, { margin: 1, width: 100 });
+          doc.addImage(qrDataUrl, 'PNG', 14, currentY + 15, 40, 40);
+          doc.text("Scan to Pay", 14, currentY + 60);
+        } catch (qrErr) {
+          console.error("QR Code generation failed", qrErr);
+        }
+      }
+
+      const fileName = `Bill_${bill.billNo}.pdf`;
+
+      if (Capacitor.isNativePlatform()) {
+        const pdfBase64 = doc.output('datauristring').split(',')[1];
+        try {
+          // Use Cache directory to avoid permission issues on Android
+          const savedFile = await Filesystem.writeFile({
+            path: fileName,
+            data: pdfBase64,
+            directory: Directory.Cache,
+          });
+          
+          await Share.share({
+            title: fileName,
+            text: `Bill ${bill.billNo}`,
+            url: savedFile.uri,
+            dialogTitle: 'Save or Share Bill'
+          });
+        } catch (fsError: any) {
+          console.error("Filesystem error:", fsError);
+          alert("Failed to save PDF to device: " + fsError.message);
+        }
+      } else {
+        // Web fallback (Mobile browsers, etc.)
+        try {
+          const pdfBlob = doc.output('blob');
+          const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
+          
+          // Try native Web Share API first (works well on mobile browsers)
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              files: [file],
+              title: fileName,
+              text: `Bill ${bill.billNo}`
+            });
+          } else {
+            // Fallback to standard download
+            doc.save(fileName);
+          }
+        } catch (webError) {
+          console.error("Web share error:", webError);
+          // Ultimate fallback
+          doc.save(fileName);
+        }
+      }
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+      alert("Failed to generate PDF");
+    }
+  };
+
+  const handleWhatsAppShare = async (bill: Bill) => {
+    const phone = window.prompt("Enter customer's WhatsApp number:");
+    if (!phone) return;
+
+    try {
+      const items = await db.billItems.where('billId').equals(bill.id!).toArray();
+      
+      let text = `*${shopName}*\n`;
+      text += `Bill No: ${bill.billNo}\n`;
+      text += `Date: ${format(bill.createdAt, 'dd MMM yyyy, hh:mm a')}\n`;
+      if (bill.customerName) text += `Customer: ${bill.customerName}\n`;
+      if (bill.tableNo) text += `Table: ${bill.tableNo}\n`;
+      text += `------------------------\n`;
+      
+      items.forEach(item => {
+        text += `${item.productName}\n${item.qty} x Rs.${item.unitPrice.toFixed(2)} = Rs.${(item.qty * item.unitPrice).toFixed(2)}\n`;
+      });
+      
+      text += `------------------------\n`;
+      text += `Subtotal: Rs.${bill.subtotal.toFixed(2)}\n`;
+      if (bill.discount > 0) text += `Discount: -Rs.${bill.discount.toFixed(2)}\n`;
+      if (bill.taxAmount > 0) text += `Tax: +Rs.${bill.taxAmount.toFixed(2)}\n`;
+      text += `*Total: Rs.${bill.total.toFixed(2)}*\n`;
+      // text += `Payment Mode: ${bill.paymentMode}\n`;
+
+      if (shopProfile?.upiId) {
+        const upiLink = `upi://pay?pa=${shopProfile.upiId}&pn=${encodeURIComponent(shopName)}&am=${bill.total.toFixed(2)}&cu=INR`;
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(upiLink)}`;
+        const clickableLink = `${window.location.origin}/pay?pa=${shopProfile.upiId}&pn=${encodeURIComponent(shopName)}&am=${bill.total.toFixed(2)}`;
+        
+        text += `\n*Pay via UPI*\n`;
+        // text += `Click the link below to pay directly via any UPI app:\n${clickableLink}\n\n`;
+        text += `scan the QR code here:\n${qrUrl}\n`;
+      }
+
+      text += `\nThank you for your visit!`;
+
+      const encodedText = encodeURIComponent(text);
+      const cleanPhone = phone.replace(/\D/g, '');
+      const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodedText}`;
+      
+      window.open(whatsappUrl, '_blank');
+    } catch (error) {
+      console.error("Error sharing to WhatsApp:", error);
+      alert("Failed to generate WhatsApp message.");
+    }
+  };
+
+  const handleEditBill = async (bill: Bill) => {
+    try {
+      const items = await db.billItems.where('billId').equals(bill.id!).toArray();
+      const products = await db.products.toArray();
+      loadBill(bill, items, products);
+      navigate('/billing');
+    } catch (error) {
+      console.error("Error loading bill:", error);
+      alert("Failed to load bill for editing.");
     }
   };
 
@@ -266,6 +464,131 @@ export function ReportsScreen() {
           )}
         </div>
       </div>
+
+      {/* Bill Details Modal */}
+      {selectedBill && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm transition-opacity">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-4 border-b border-[#C6C6C8]/50 flex items-center justify-between bg-[#F2F2F7] shrink-0">
+              <h2 className="text-lg font-bold text-[#1C1C1E]">Bill Details</h2>
+              <button 
+                onClick={() => setSelectedBill(null)}
+                className="p-2 text-[#6E6E73] hover:bg-[#E3E3E8] rounded-full transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto flex-1">
+              <div className="text-center mb-6">
+                <h3 className="text-xl font-bold text-[#1C1C1E]">{shopName}</h3>
+                <p className="text-sm text-[#6E6E73]">Bill No: {selectedBill.billNo}</p>
+                <p className="text-sm text-[#6E6E73]">{format(selectedBill.createdAt, 'dd MMM yyyy, hh:mm a')}</p>
+              </div>
+
+              {(selectedBill.customerName || selectedBill.tableNo) && (
+                <div className="mb-6 p-4 bg-[#F2F2F7] rounded-xl text-sm flex justify-between items-center">
+                  {selectedBill.customerName && (
+                    <div>
+                      <span className="text-[#6E6E73] block text-xs uppercase tracking-wider font-bold mb-1">Customer</span> 
+                      <span className="font-semibold text-[#1C1C1E]">{selectedBill.customerName}</span>
+                    </div>
+                  )}
+                  {selectedBill.tableNo && (
+                    <div className="text-right">
+                      <span className="text-[#6E6E73] block text-xs uppercase tracking-wider font-bold mb-1">Table</span> 
+                      <span className="font-semibold text-[#1C1C1E]">{selectedBill.tableNo}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-3 mb-6">
+                <div className="flex justify-between text-xs font-bold text-[#6E6E73] uppercase tracking-wider border-b border-[#C6C6C8]/50 pb-2">
+                  <span>Item</span>
+                  <span>Amount</span>
+                </div>
+                {selectedBillItems?.map((item, idx) => (
+                  <div key={idx} className="flex justify-between text-sm items-center">
+                    <div>
+                      <p className="font-semibold text-[#1C1C1E]">{item.productName}</p>
+                      <p className="text-[#6E6E73] text-xs">{item.qty} x ₹{item.unitPrice.toFixed(2)}</p>
+                    </div>
+                    <p className="font-medium text-[#1C1C1E]">₹{(item.qty * item.unitPrice).toFixed(2)}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-2 text-sm border-t border-[#C6C6C8]/50 pt-4">
+                <div className="flex justify-between text-[#6E6E73]">
+                  <span>Subtotal</span>
+                  <span>₹{selectedBill.subtotal.toFixed(2)}</span>
+                </div>
+                {selectedBill.discount > 0 && (
+                  <div className="flex justify-between text-[#34C759]">
+                    <span>Discount</span>
+                    <span>-₹{selectedBill.discount.toFixed(2)}</span>
+                  </div>
+                )}
+                {selectedBill.tax > 0 && (
+                  <div className="flex justify-between text-[#6E6E73]">
+                    <span>Tax</span>
+                    <span>+₹{selectedBill.tax.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-lg font-bold text-[#1C1C1E] pt-2 border-t border-[#C6C6C8]/50 mt-2">
+                  <span>Total</span>
+                  <span>₹{selectedBill.total.toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div className="mt-6 text-center">
+                <span className={cn(
+                  "text-xs px-3 py-1 rounded-full font-bold uppercase",
+                  selectedBill.paymentMode === 'Cash' ? "bg-green-100 text-green-700" :
+                  selectedBill.paymentMode === 'UPI' ? "bg-purple-100 text-purple-700" :
+                  "bg-blue-100 text-blue-700"
+                )}>
+                  Paid via {selectedBill.paymentMode}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-[#C6C6C8]/50 bg-white shrink-0 pb-safe flex flex-col gap-3">
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => handleReprint(selectedBill)}
+                  className="flex-1 bg-[#F2F2F7] text-[#1C1C1E] py-3.5 rounded-xl font-bold text-base flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                >
+                  <Printer className="w-5 h-5" />
+                  Reprint
+                </button>
+                <button 
+                  onClick={() => handleDownloadPDF(selectedBill)}
+                  className="flex-1 bg-[#007AFF] text-white py-3.5 rounded-xl font-bold text-base flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                >
+                  <Download className="w-5 h-5" />
+                  Save PDF
+                </button>
+              </div>
+              <button 
+                onClick={() => handleWhatsAppShare(selectedBill)}
+                className="w-full bg-[#25D366] text-white py-3.5 rounded-xl font-bold text-base flex items-center justify-center gap-2 active:scale-95 transition-transform"
+              >
+                <MessageCircle className="w-5 h-5" />
+                Share via WhatsApp
+              </button>
+              <button 
+                onClick={() => handleEditBill(selectedBill)}
+                className="w-full bg-[#FF9500] text-white py-3.5 rounded-xl font-bold text-base flex items-center justify-center gap-2 active:scale-95 transition-transform"
+              >
+                <Edit className="w-5 h-5" />
+                Edit Bill
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

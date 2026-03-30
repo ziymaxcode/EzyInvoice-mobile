@@ -57,12 +57,16 @@ export function LoginScreen() {
 
   if (users.length === 0) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#F2F2F7] p-4">
-        <div className="bg-white p-8 rounded-3xl shadow-lg max-w-md w-full text-center">
+      <div className="flex h-[100dvh] items-center justify-center bg-[#F2F2F7] p-4">
+        <div className="bg-white p-6 md:p-8 rounded-3xl shadow-lg max-w-md w-full text-center">
           <div className="w-16 h-16 bg-[#007AFF]/10 rounded-full flex items-center justify-center mx-auto mb-6">
-            <Lock className="w-8 h-8 text-[#007AFF]" />
-          </div>
-          <h1 className="text-2xl font-bold mb-2 text-[#1C1C1E]">Welcome to POS</h1>
+              <img
+                src="/ezyinvoicelogo.png"   // your logo path
+                alt="Company Logo"
+                className="w-10 h-10 object-contain"
+              />
+            </div>
+          <h1 className="text-2xl font-bold mb-2 text-[#1C1C1E]">Welcome to EzyPOS</h1>
           <p className="text-[#6E6E73] mb-8">Create your admin account to get started.</p>
           
           <div className="space-y-4 text-left">
@@ -101,11 +105,11 @@ export function LoginScreen() {
   }
 
   return (
-    <div className="flex h-screen bg-[#F2F2F7]">
+    <div className="flex flex-col md:flex-row h-[100dvh] bg-[#F2F2F7] overflow-hidden">
       {/* Left side: User Selection */}
-      <div className="flex-1 flex flex-col items-center justify-center p-8">
-        <h1 className="text-3xl font-bold text-[#1C1C1E] mb-8">Select User</h1>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 max-w-2xl w-full">
+      <div className="flex-1 flex flex-col items-center justify-start md:justify-center p-4 md:p-8 overflow-y-auto pb-8">
+        <h1 className="text-2xl md:text-3xl font-bold text-[#1C1C1E] mb-6 md:mb-8 mt-4 md:mt-0">Select User</h1>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4 max-w-2xl w-full">
           {users.map(user => (
             <button
               key={user.id}
@@ -115,21 +119,21 @@ export function LoginScreen() {
                 setError('');
               }}
               className={cn(
-                "flex flex-col items-center p-6 rounded-2xl transition-all",
+                "flex flex-col items-center p-4 md:p-6 rounded-2xl transition-all",
                 selectedUser?.id === user.id 
                   ? "bg-[#007AFF] text-white shadow-lg scale-105" 
                   : "bg-white text-[#1C1C1E] hover:bg-gray-50 shadow-sm"
               )}
             >
               <div className={cn(
-                "w-16 h-16 rounded-full flex items-center justify-center mb-3",
+                "w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center mb-2 md:mb-3",
                 selectedUser?.id === user.id ? "bg-white/20" : "bg-[#F2F2F7]"
               )}>
-                <UserIcon className="w-8 h-8" />
+                <UserIcon className="w-6 h-6 md:w-8 md:h-8" />
               </div>
-              <span className="font-semibold text-lg">{user.name}</span>
+              <span className="font-semibold text-base md:text-lg">{user.name}</span>
               <span className={cn(
-                "text-xs mt-1 px-2 py-0.5 rounded-full",
+                "text-[10px] md:text-xs mt-1 px-2 py-0.5 rounded-full",
                 selectedUser?.id === user.id ? "bg-white/20" : "bg-gray-100 text-gray-500"
               )}>
                 {user.role}
@@ -140,7 +144,7 @@ export function LoginScreen() {
       </div>
 
       {/* Right side: PIN Pad */}
-      <div className="w-full max-w-md bg-white shadow-[-10px_0_30px_rgba(0,0,0,0.05)] flex flex-col items-center justify-center p-8">
+      <div className="w-full md:max-w-md bg-white shadow-[0_-10px_30px_rgba(0,0,0,0.05)] md:shadow-[-10px_0_30px_rgba(0,0,0,0.05)] flex flex-col items-center justify-center p-6 md:p-8 shrink-0 rounded-t-3xl md:rounded-none z-10 mt-auto md:mt-0 pb-safe">
         {selectedUser ? (
           <>
             <div className="text-center mb-8">

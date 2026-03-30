@@ -21,14 +21,12 @@ export function Layout() {
       {/* Mobile Header with Logo */}
       <header className="md:hidden bg-white border-b border-[#C6C6C8]/50 h-14 flex items-center px-4 shrink-0 z-40">
         <div className="flex items-center gap-2">
-          {shopProfile?.logoPath ? (
-            <img src={shopProfile.logoPath} alt="Logo" className="w-8 h-8 rounded-lg object-cover border border-[#C6C6C8]/30" />
-          ) : (
-            <div className="w-8 h-8 bg-[#007AFF]/10 text-[#007AFF] rounded-lg flex items-center justify-center">
-              <Store className="w-5 h-5" />
-            </div>
-          )}
-          <span className="font-bold text-lg truncate text-[#1C1C1E]">{shopProfile?.name || 'POS App'}</span>
+          <img
+              src="/ezyinvoicelogo.png"
+              alt="Company Logo"
+              className="w-8 h-8 rounded-lg object-cover border border-[#C6C6C8]/30"
+            />
+          <span className="font-bold text-lg truncate text-[#1C1C1E]">{shopProfile?.name || 'EzyPos'}</span>
         </div>
       </header>
 

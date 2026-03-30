@@ -14,6 +14,9 @@ interface CartState {
   discountValue: number;
   taxRate: number; // e.g., 5 for 5%
   paymentMode: 'Cash' | 'UPI' | 'Card';
+  editBillId: number | null;
+  editBillNo: string | null;
+  editCreatedAt: Date | null;
   
   addItem: (product: Product) => void;
   removeItem: (cartItemId: string) => void;
@@ -22,6 +25,7 @@ interface CartState {
   setDiscount: (type: 'flat' | 'percent', value: number) => void;
   setTaxRate: (rate: number) => void;
   setPaymentMode: (mode: 'Cash' | 'UPI' | 'Card') => void;
+  loadBill: (bill: any, billItems: any[], products: Product[]) => void;
   clearCart: () => void;
   getTotals: () => { subtotal: number; discountAmount: number; taxAmount: number; total: number };
 }
@@ -34,6 +38,9 @@ export const useCartStore = create<CartState>((set, get) => ({
   discountValue: 0,
   taxRate: 0,
   paymentMode: 'Cash',
+  editBillId: null,
+  editBillNo: null,
+  editCreatedAt: null,
 
   addItem: (product) => {
     set((state) => {
@@ -73,6 +80,39 @@ export const useCartStore = create<CartState>((set, get) => ({
   
   setPaymentMode: (paymentMode) => set({ paymentMode }),
 
+  loadBill: (bill, billItems, products) => {
+    const items: CartItem[] = billItems.map(bItem => {
+      const product = products.find(p => p.id === bItem.productId);
+      return {
+        id: bItem.productId,
+        name: bItem.productName,
+        price: bItem.unitPrice,
+        taxRate: bItem.taxRate,
+        categoryId: product?.categoryId || 0,
+        stockQty: product?.stockQty || 0,
+        isAvailable: true,
+        hsnCode: product?.hsnCode || '',
+        imagePath: product?.imagePath || '',
+        createdAt: product?.createdAt || new Date(),
+        cartItemId: Math.random().toString(36).substr(2, 9),
+        qty: bItem.qty
+      };
+    });
+
+    set({
+      items,
+      customerName: bill.customerName || '',
+      tableNo: bill.tableNo || '',
+      discountType: 'flat',
+      discountValue: bill.discount || 0,
+      taxRate: bill.taxAmount > 0 ? Math.round((bill.taxAmount / (bill.subtotal - bill.discount)) * 100) : 0,
+      paymentMode: bill.paymentMode as any,
+      editBillId: bill.id,
+      editBillNo: bill.billNo,
+      editCreatedAt: bill.createdAt
+    });
+  },
+
   clearCart: () => set({
     items: [],
     customerName: '',
@@ -80,7 +120,10 @@ export const useCartStore = create<CartState>((set, get) => ({
     discountType: 'flat',
     discountValue: 0,
     taxRate: 0,
-    paymentMode: 'Cash'
+    paymentMode: 'Cash',
+    editBillId: null,
+    editBillNo: null,
+    editCreatedAt: null
   }),
 
   getTotals: () => {

@@ -120,7 +120,7 @@ export function ProductModal({ isOpen, onClose, product, categories }: ProductMo
               value={name}
               onChange={e => setName(e.target.value)}
               className="w-full bg-[#F2F2F7] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#007AFF] outline-none"
-              placeholder="e.g. Masala Dosa"
+              placeholder=""
             />
           </div>
 
