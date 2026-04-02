@@ -285,7 +285,7 @@ export function ReportsScreen() {
   };
 
   const handleWhatsAppShare = async (bill: Bill) => {
-    const phone = window.prompt("Enter customer's WhatsApp number (with country code, e.g., 919876543210):");
+    const phone = window.prompt("Enter customer's WhatsApp number:");
     if (!phone) return;
 
     try {
@@ -312,11 +312,11 @@ export function ReportsScreen() {
       if (shopProfile?.upiId) {
         const upiLink = `upi://pay?pa=${shopProfile.upiId}&pn=${encodeURIComponent(shopName)}&am=${bill.total.toFixed(2)}&cu=INR`;
         const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(upiLink)}`;
-        const clickableLink = `${window.location.origin}/pay?pa=${shopProfile.upiId}&pn=${encodeURIComponent(shopName)}&am=${bill.total.toFixed(2)}`;
+        // const clickableLink = `${window.location.origin}/pay?pa=${shopProfile.upiId}&pn=${encodeURIComponent(shopName)}&am=${bill.total.toFixed(2)}`;
         
         text += `\n*Pay via UPI*\n`;
-        text += `Click the link below to pay directly via any UPI app:\n${clickableLink}\n\n`;
-        text += `Or scan the QR code here:\n${qrUrl}\n`;
+        // text += `Click the link below to pay directly via any UPI app:\n${clickableLink}\n\n`;
+        text += `scan the QR code here:\n${qrUrl}\n`;
       }
 
       text += `\nThank you for your visit!`;
