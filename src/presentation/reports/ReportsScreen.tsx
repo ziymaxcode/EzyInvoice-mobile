@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useNavigate } from 'react-router-dom';
 import { useCartStore } from '../billing/store/useCartStore';
@@ -10,7 +10,6 @@ import { format, subDays, isAfter, startOfDay, endOfDay } from 'date-fns';
 import { printerService } from '../../services/printerService';
 import { buildReceipt } from '../../services/receiptBuilder';
 import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
@@ -90,7 +89,21 @@ export function ReportsScreen() {
     [selectedBill]
   );
 
+  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (selectedBill && shopProfile?.upiId) {
+      const upiLink = `upi://pay?pa=${shopProfile.upiId}&pn=${encodeURIComponent(shopName)}&am=${selectedBill.total.toFixed(2)}&cu=INR`;
+      QRCode.toDataURL(upiLink, { margin: 1, width: 150 })
+        .then(setQrCodeUrl)
+        .catch(console.error);
+    } else {
+      setQrCodeUrl(null);
+    }
+  }, [selectedBill, shopProfile, shopName]);
+
   const handleReprint = async (bill: Bill) => {
+
     try {
       const items = await db.billItems.where('billId').equals(bill.id!).toArray();
       if (!printerService.isConnected()) {
@@ -106,74 +119,119 @@ export function ReportsScreen() {
   const handleDownloadPDF = async (bill: Bill) => {
     try {
       const items = await db.billItems.where('billId').equals(bill.id!).toArray();
-      const doc = new jsPDF();
       
-      // Header
-      doc.setFontSize(20);
-      doc.text(shopName, 105, 20, { align: 'center' });
+      // Calculate height
+      let lineCount = 15 + items.length;
+      if (bill.customerName) lineCount++;
+      if (bill.tableNo) lineCount++;
+      if (bill.discount > 0) lineCount++;
+      if (bill.taxAmount > 0) lineCount++;
       
-      doc.setFontSize(12);
-      doc.text(`Bill No: ${bill.billNo}`, 14, 35);
-      doc.text(`Date: ${format(bill.createdAt, 'dd MMM yyyy, hh:mm a')}`, 14, 42);
-      
-      let startY = 49;
-      if (bill.customerName) {
-        doc.text(`Customer: ${bill.customerName}`, 14, startY);
-        startY += 7;
-      }
-      if (bill.tableNo) {
-        doc.text(`Table: ${bill.tableNo}`, 14, startY);
-        startY += 7;
+      const lineHeight = 3.5;
+      let pageHeight = lineCount * lineHeight + 20;
+      if (shopProfile?.upiId) {
+        pageHeight += 45; // Space for QR code
       }
 
-      // Items Table
-      const tableColumn = ["Item", "Qty", "Price", "Total"];
-      const tableRows = items.map(item => [
-        item.productName,
-        item.qty.toString(),
-        `Rs. ${item.unitPrice.toFixed(2)}`,
-        `Rs. ${(item.qty * item.unitPrice).toFixed(2)}`
-      ]);
-
-      autoTable(doc, {
-        startY: startY + 5,
-        head: [tableColumn],
-        body: tableRows,
-        theme: 'striped',
-        headStyles: { fillColor: [0, 122, 255] },
+      const pageWidth = paperSize === '80mm' ? 80 : 58;
+      const doc = new jsPDF({
+        unit: 'mm',
+        format: [pageWidth, pageHeight]
       });
-
-      const finalY = (doc as any).lastAutoTable.finalY || startY + 5;
-
-      // Totals
-      doc.text(`Subtotal: Rs. ${bill.subtotal.toFixed(2)}`, 140, finalY + 10);
-      let currentY = finalY + 17;
-      if (bill.discount > 0) {
-        doc.text(`Discount: Rs. ${bill.discount.toFixed(2)}`, 140, currentY);
-        currentY += 7;
-      }
-      if (bill.taxAmount > 0) {
-        doc.text(`Tax: Rs. ${bill.taxAmount.toFixed(2)}`, 140, currentY);
-        currentY += 7;
-      }
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text(`Total: Rs. ${bill.total.toFixed(2)}`, 140, currentY + 5);
       
-      doc.setFontSize(12);
-      doc.setFont("helvetica", "normal");
-      doc.text(`Payment Mode: ${bill.paymentMode}`, 14, currentY + 5);
+      const margin = 4;
+      const maxChars = paperSize === '80mm' ? 48 : 32;
+      const baseFontSize = 7.5;
+      
+      let currentY = 10;
+      
+      const printCenter = (text: string, isBold = false, size = baseFontSize) => {
+        doc.setFont("courier", isBold ? "bold" : "normal");
+        doc.setFontSize(size);
+        doc.text(text, pageWidth / 2, currentY, { align: 'center' });
+        currentY += size === baseFontSize ? lineHeight : lineHeight * 1.5;
+      };
+
+      const printLeft = (text: string, isBold = false) => {
+        doc.setFont("courier", isBold ? "bold" : "normal");
+        doc.setFontSize(baseFontSize);
+        doc.text(text, margin, currentY);
+        currentY += lineHeight;
+      };
+
+      const printRight = (text: string, isBold = false) => {
+        doc.setFont("courier", isBold ? "bold" : "normal");
+        doc.setFontSize(baseFontSize);
+        doc.text(text, pageWidth - margin, currentY, { align: 'right' });
+        currentY += lineHeight;
+      };
+
+      const printLine = () => {
+        doc.setFont("courier", "normal");
+        doc.setFontSize(baseFontSize);
+        doc.text("-".repeat(maxChars), margin, currentY);
+        currentY += lineHeight;
+      };
+
+      // Header
+      printCenter(shopName, true, 11);
+      printLeft(`Bill No: ${bill.billNo}`);
+      printLeft(`Date: ${format(bill.createdAt, 'dd MMM yyyy, hh:mm a')}`);
+      
+      if (bill.customerName) printLeft(`Customer: ${bill.customerName}`);
+      if (bill.tableNo) printLeft(`Table: ${bill.tableNo}`);
+      
+      printLine();
+      
+      // Items Header
+      const qtyWidth = 4;
+      const amtWidth = 8;
+      const nameWidth = maxChars - qtyWidth - amtWidth - 2;
+      
+      const headerStr = "Item".padEnd(nameWidth, ' ') + " " + 
+                        "Qty".padStart(qtyWidth, ' ') + " " + 
+                        "Amount".padStart(amtWidth, ' ');
+      printLeft(headerStr, true);
+      printLine();
+      
+      // Items
+      items.forEach(item => {
+        let name = item.productName;
+        if (name.length > nameWidth) {
+          name = name.substring(0, nameWidth - 2) + "..";
+        } else {
+          name = name.padEnd(nameWidth, ' ');
+        }
+        const qty = `${item.qty}`.padStart(qtyWidth, ' ');
+        const amt = `${(item.qty * item.unitPrice).toFixed(2)}`.padStart(amtWidth, ' ');
+        printLeft(`${name} ${qty} ${amt}`);
+      });
+      
+      printLine();
+      
+      // Totals
+      printRight(`Subtotal: ${bill.subtotal.toFixed(2)}`);
+      if (bill.discount > 0) printRight(`Discount: -${bill.discount.toFixed(2)}`);
+      if (bill.taxAmount > 0) printRight(`Tax: +${bill.taxAmount.toFixed(2)}`);
+      
+      printRight(`Total: ${bill.total.toFixed(2)}`, true);
+      printLeft(`Paid via: ${bill.paymentMode}`);
+      
+      currentY += lineHeight;
 
       if (shopProfile?.upiId) {
         const upiLink = `upi://pay?pa=${shopProfile.upiId}&pn=${encodeURIComponent(shopName)}&am=${bill.total.toFixed(2)}&cu=INR`;
         try {
-          const qrDataUrl = await QRCode.toDataURL(upiLink, { margin: 1, width: 100 });
-          doc.addImage(qrDataUrl, 'PNG', 14, currentY + 15, 40, 40);
-          doc.text("Scan to Pay", 14, currentY + 60);
+          const qrDataUrl = await QRCode.toDataURL(upiLink, { margin: 1, width: 120 });
+          printCenter("Scan to Pay", true);
+          doc.addImage(qrDataUrl, 'PNG', (pageWidth - 30) / 2, currentY, 30, 30);
+          currentY += 35;
         } catch (qrErr) {
           console.error("QR Code generation failed", qrErr);
         }
       }
+
+      printCenter("Thank you! Visit again.");
 
       const fileName = `Bill_${bill.billNo}.pdf`;
 
@@ -227,7 +285,7 @@ export function ReportsScreen() {
   };
 
   const handleWhatsAppShare = async (bill: Bill) => {
-    const phone = window.prompt("Enter customer's WhatsApp number:");
+    const phone = window.prompt("Enter customer's WhatsApp number (with country code, e.g., 919876543210):");
     if (!phone) return;
 
     try {
@@ -249,7 +307,7 @@ export function ReportsScreen() {
       if (bill.discount > 0) text += `Discount: -Rs.${bill.discount.toFixed(2)}\n`;
       if (bill.taxAmount > 0) text += `Tax: +Rs.${bill.taxAmount.toFixed(2)}\n`;
       text += `*Total: Rs.${bill.total.toFixed(2)}*\n`;
-      // text += `Payment Mode: ${bill.paymentMode}\n`;
+      text += `Payment Mode: ${bill.paymentMode}\n`;
 
       if (shopProfile?.upiId) {
         const upiLink = `upi://pay?pa=${shopProfile.upiId}&pn=${encodeURIComponent(shopName)}&am=${bill.total.toFixed(2)}&cu=INR`;
@@ -257,8 +315,8 @@ export function ReportsScreen() {
         const clickableLink = `${window.location.origin}/pay?pa=${shopProfile.upiId}&pn=${encodeURIComponent(shopName)}&am=${bill.total.toFixed(2)}`;
         
         text += `\n*Pay via UPI*\n`;
-        // text += `Click the link below to pay directly via any UPI app:\n${clickableLink}\n\n`;
-        text += `scan the QR code here:\n${qrUrl}\n`;
+        text += `Click the link below to pay directly via any UPI app:\n${clickableLink}\n\n`;
+        text += `Or scan the QR code here:\n${qrUrl}\n`;
       }
 
       text += `\nThank you for your visit!`;
@@ -530,10 +588,10 @@ export function ReportsScreen() {
                     <span>-₹{selectedBill.discount.toFixed(2)}</span>
                   </div>
                 )}
-                {selectedBill.tax > 0 && (
+                {selectedBill.taxAmount > 0 && (
                   <div className="flex justify-between text-[#6E6E73]">
                     <span>Tax</span>
-                    <span>+₹{selectedBill.tax.toFixed(2)}</span>
+                    <span>+₹{selectedBill.taxAmount.toFixed(2)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-lg font-bold text-[#1C1C1E] pt-2 border-t border-[#C6C6C8]/50 mt-2">
@@ -551,6 +609,13 @@ export function ReportsScreen() {
                 )}>
                   Paid via {selectedBill.paymentMode}
                 </span>
+                
+                {qrCodeUrl && (
+                  <div className="mt-6 flex flex-col items-center">
+                    <p className="text-sm font-bold text-[#1C1C1E] mb-2">Scan to Pay</p>
+                    <img src={qrCodeUrl} alt="UPI QR Code" className="w-32 h-32 border border-[#C6C6C8]/50 rounded-xl p-2 bg-white" />
+                  </div>
+                )}
               </div>
             </div>
 

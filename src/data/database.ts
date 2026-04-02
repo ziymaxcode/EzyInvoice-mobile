@@ -6,6 +6,7 @@ export interface Shop {
   address: string;
   phone: string;
   gstNo: string;
+  upiId?: string;
   logoPath: string;
   createdAt: Date;
 }

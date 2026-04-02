@@ -61,6 +61,32 @@ export class EscPosEncoder {
     return this;
   }
 
+  qrcode(data: string, size: number = 6) {
+    const dataLen = data.length + 3;
+    const pL = dataLen % 256;
+    const pH = Math.floor(dataLen / 256);
+
+    // Select model 2
+    this.buffer.push(0x1D, 0x28, 0x6B, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00);
+    
+    // Set size
+    this.buffer.push(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x43, size);
+    
+    // Set error correction level (L=48, M=49, Q=50, H=51) -> using M
+    this.buffer.push(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x45, 0x31);
+    
+    // Store data
+    this.buffer.push(0x1D, 0x28, 0x6B, pL, pH, 0x31, 0x50, 0x30);
+    for (let i = 0; i < data.length; i++) {
+      this.buffer.push(data.charCodeAt(i) & 0xFF);
+    }
+    
+    // Print QR code
+    this.buffer.push(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x51, 0x30);
+    
+    return this;
+  }
+
   encode(): Uint8Array {
     return new Uint8Array(this.buffer);
   }
