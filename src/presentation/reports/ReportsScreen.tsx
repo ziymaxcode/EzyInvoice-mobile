@@ -120,8 +120,22 @@ export function ReportsScreen() {
     try {
       const items = await db.billItems.where('billId').equals(bill.id!).toArray();
       
-      // Calculate height
-      let lineCount = 15 + items.length;
+const pageWidth = paperSize === '80mm' ? 80 : 58;
+
+const margin = 4;
+const maxChars = paperSize === '80mm' ? 48 : 32;
+
+const qtyWidth = 4;
+const amtWidth = 8;
+const nameWidth = maxChars - qtyWidth - amtWidth - 2;
+
+// NOW safe to use
+let lineCount = 15;
+
+items.forEach(item => {
+  const lines = Math.ceil(item.productName.length / nameWidth);
+  lineCount += lines;
+});
       if (bill.customerName) lineCount++;
       if (bill.tableNo) lineCount++;
       if (bill.discount > 0) lineCount++;
@@ -133,14 +147,14 @@ export function ReportsScreen() {
         pageHeight += 45; // Space for QR code
       }
 
-      const pageWidth = paperSize === '80mm' ? 80 : 58;
+      // const pageWidth = paperSize === '80mm' ? 80 : 58;
       const doc = new jsPDF({
         unit: 'mm',
         format: [pageWidth, pageHeight]
       });
       
-      const margin = 4;
-      const maxChars = paperSize === '80mm' ? 48 : 32;
+      
+      // const maxChars = paperSize === '80mm' ? 48 : 32;
       const baseFontSize = 7.5;
       
       let currentY = 10;
@@ -183,10 +197,7 @@ export function ReportsScreen() {
       
       printLine();
       
-      // Items Header
-      const qtyWidth = 4;
-      const amtWidth = 8;
-      const nameWidth = maxChars - qtyWidth - amtWidth - 2;
+      
       
       const headerStr = "Item".padEnd(nameWidth, ' ') + " " + 
                         "Qty".padStart(qtyWidth, ' ') + " " + 
@@ -196,16 +207,34 @@ export function ReportsScreen() {
       
       // Items
       items.forEach(item => {
-        let name = item.productName;
-        if (name.length > nameWidth) {
-          name = name.substring(0, nameWidth - 2) + "..";
-        } else {
-          name = name.padEnd(nameWidth, ' ');
-        }
-        const qty = `${item.qty}`.padStart(qtyWidth, ' ');
-        const amt = `${(item.qty * item.unitPrice).toFixed(2)}`.padStart(amtWidth, ' ');
-        printLeft(`${name} ${qty} ${amt}`);
-      });
+  const words = item.productName.split(' ');
+  let lines: string[] = [];
+  let currentLine = '';
+
+  words.forEach(word => {
+    if ((currentLine + word).length <= nameWidth) {
+      currentLine += word + ' ';
+    } else {
+      lines.push(currentLine.trim());
+      currentLine = word + ' ';
+    }
+  });
+
+  if (currentLine) lines.push(currentLine.trim());
+
+  lines.forEach((line, index) => {
+    const name = line.padEnd(nameWidth, ' ');
+
+    if (index === 0) {
+      const qty = `${item.qty}`.padStart(qtyWidth, ' ');
+      const amt = `${(item.qty * item.unitPrice).toFixed(2)}`.padStart(amtWidth, ' ');
+      printLeft(`${name} ${qty} ${amt}`);
+    } else {
+      // next lines only print name
+      printLeft(`${name}`);
+    }
+  });
+});
       
       printLine();
       
